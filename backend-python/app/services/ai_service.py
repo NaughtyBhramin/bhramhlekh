@@ -1,15 +1,28 @@
 """
-Jyotish AI Service — Anthropic Claude Integration
-Generates AI-powered horoscopes, Kundli readings, remedies, chat responses
+Bhramhlekh — AI Service
+Provider: Groq Cloud (Free Tier)
+Model: openai/gpt-oss-120b
+Generates: horoscopes, kundli readings, compatibility, dasha, muhurta, chat
 """
 
-import anthropic
-from typing import Optional, Dict, Any, AsyncIterator
-from app.core.config import settings
+from __future__ import annotations
+
+import asyncio
 import json
+import re
+from typing import Any, Dict, List, Optional
 
-client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+from groq import Groq
 
+# ── Settings import ────────────────────────────────────────────────────────
+# Ensure `settings` provides the following attributes:
+#   GROQ_API_KEY, GROQ_MODEL, GROQ_MAX_TOKENS
+from app.core.config import settings
+
+# ── Groq client ─────────────────────────────────────────────────────────────
+client = Groq(api_key=settings.GROQ_API_KEY)
+
+# ── System Prompt ───────────────────────────────────────────────────────────
 JYOTISH_SYSTEM_PROMPT = """You are Jyotish Guru — an ancient and wise Vedic astrology master with deep knowledge of:
 - All 9 Navagrahas (planets) and their significations
 - 12 Rashis (zodiac signs) and their characteristics
@@ -28,99 +41,116 @@ Your responses must:
 7. Balance traditional wisdom with modern relevance
 8. Maintain an elevated, sacred, yet accessible tone
 
-Always begin readings with "Om" and a relevant Sanskrit invocation.
-Never make specific financial predictions or medical diagnoses.
-Remind users this is for spiritual guidance, not life decisions."""
+CRITICAL: Always respond with valid JSON only. No preamble, no explanation outside JSON, no markdown fences.
+Never mention that you are an AI or a language model in your readings.
+Always begin readings with "Om" in spirit — weave reverence into your words.
+"""
+
+# ── Helper utilities ───────────────────────────────────────────────────────
+def _strip_markdown_fences(text: str) -> str:
+    """Remove optional markdown fences (``` or ```json) from model output."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
+    return text.strip()
 
 
+def _parse_json(text: str) -> Dict[str, Any]:
+    """Parse JSON from a string that may contain stray whitespace or fences."""
+    cleaned = _strip_markdown_fences(text)
+    return json.loads(cleaned)
+
+
+async def _call_groq(prompt: str, *, max_tokens: Optional[int] = None) -> str:
+    """Execute a Groq chat completion in a thread‑pool to keep the event loop non‑blocking."""
+    tokens = max_tokens or settings.GROQ_MAX_TOKENS
+    messages = [
+        {"role": "system", "content": JYOTISH_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    def _sync_call() -> str:
+        resp = client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            max_tokens=tokens,
+            temperature=0.7,
+            messages=messages,
+        )
+        return resp.choices[0].message.content or ""
+
+    return await asyncio.to_thread(_sync_call)
+
+
+# ── Horoscope ────────────────────────────────────────────────────────────────
 async def generate_ai_horoscope(
     rashi: str,
     rashi_english: str,
-    period_type: str,  # daily | weekly | monthly | yearly
+    period_type: str,
     date_context: str,
-    current_transits: list,
-    current_dasha: Optional[str] = None
+    current_transits: List[Dict[str, Any]],
+    current_dasha: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Generate a fully AI-powered horoscope reading."""
-
-    transit_text = "\n".join([
-        f"- {t['planet']} in {t['sign']} at {t.get('deg', '?')}°{' (Retrograde)' if t.get('retro') else ''}: {t.get('effect', '')}"
+    """Return a JSON horoscope for the supplied parameters."""
+    transit_lines = [
+        f"- {t['planet']} in {t['sign']} at {t.get('deg', '?')}°"
+        f"{' (Retrograde)' if t.get('retro') else ''}: {t.get('effect', '')}"
         for t in current_transits[:5]
-    ])
+    ]
+    transit_text = "\n".join(transit_lines)
 
-    prompt = f"""Generate a detailed {period_type} horoscope reading for {rashi} ({rashi_english}) Rashi.
+    prompt = f"""Generate a detailed {period_type} horoscope for {rashi} ({rashi_english}) Rashi.
 
 Date/Period: {date_context}
 {f'Current Mahadasha: {current_dasha}' if current_dasha else ''}
 
-Current Planetary Transits:
+Active Planetary Transits:
 {transit_text}
 
-Please provide:
-1. MAIN PREDICTION (3-4 sentences): Overall energy and key themes for this {period_type}
-2. LOVE & RELATIONSHIPS (2-3 sentences): Romance, partnerships, family dynamics  
-3. CAREER & FINANCE (2-3 sentences): Professional opportunities, financial guidance
-4. HEALTH & WELLNESS (1-2 sentences): Physical and mental health focus areas
-5. SPIRITUAL GUIDANCE (1-2 sentences): Spiritual practice recommendations
-6. LUCKY ELEMENTS: One color, one number (1-9), one gemstone, one best day
-7. SCORES (as integers 0-100): love_score, career_score, health_score, finance_score
-8. REMEDY OF THE DAY: One specific Vedic remedy appropriate for this {period_type}
-
-Respond in this exact JSON format:
+Respond ONLY with this JSON (no other text):
 {{
-  "main_prediction": "...",
-  "love": "...",
-  "career": "...",
-  "health": "...",
-  "spiritual": "...",
-  "lucky_color": "...",
+  "main_prediction": "3-4 sentences of overall energy and key themes",
+  "love": "2-3 sentences on romance and relationships",
+  "career": "2-3 sentences on professional and financial matters",
+  "health": "1-2 sentences on physical and mental wellbeing",
+  "spiritual": "1-2 sentences on spiritual practice",
+  "lucky_color": "one color",
   "lucky_number": 7,
-  "lucky_gem": "...",
-  "lucky_day": "...",
+  "lucky_gem": "one gemstone",
+  "lucky_day": "one day of week",
   "love_score": 78,
   "career_score": 82,
   "health_score": 75,
   "finance_score": 80,
-  "remedy": "...",
-  "mantra": "..."
+  "remedy": "one specific Vedic remedy for this period",
+  "mantra": "Sanskrit mantra with transliteration"
 }}"""
+    raw = await _call_groq(prompt, max_tokens=1024)
+    return _parse_json(raw)
 
-    message = client.messages.create(
-        model=settings.AI_MODEL,
-        max_tokens=1024,
-        system=JYOTISH_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
+
+# ── Kundli Reading ───────────────────────────────────────────────────────────
+async def generate_kundli_reading(kundli_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a comprehensive Vedic Kundli analysis in JSON."""
+    planets_text = "\n".join(
+        f"- {name}: {p['rashi']} ({p['rashi_symbol']}), House {p['house']}, "
+        f"{p['degree_in_rashi']:.1f}°, Nakshatra: {p['nakshatra']} Pada {p['nakshatra_pada']}"
+        f"{' (Retrograde)' if p['is_retrograde'] else ''}"
+        for name, p in kundli_data.get("planets", {}).items()
     )
 
-    text = message.content[0].text.strip()
-    # Strip markdown code fences if present
-    text = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+    yogas_text = "\n".join(f"- {y}" for y in kundli_data.get("yogas", []))
 
-
-async def generate_kundli_reading(kundli_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate comprehensive AI-powered Kundli interpretation."""
-
-    planets_text = "\n".join([
-        f"- {name}: in {p['rashi']} ({p['rashi_symbol']}), House {p['house']}, {p['degree_in_rashi']:.1f}°, Nakshatra: {p['nakshatra']} Pada {p['nakshatra_pada']}{' (Retrograde)' if p['is_retrograde'] else ''}"
-        for name, p in kundli_data.get('planets', {}).items()
-    ])
-
-    yogas_text = "\n".join([f"- {y}" for y in kundli_data.get('yogas', [])])
-
-    prompt = f"""Perform a comprehensive Vedic Kundli (birth chart) analysis for:
+    prompt = f"""Perform a complete Vedic Kundli analysis for:
 
 Name: {kundli_data.get('name', 'Native')}
 Date of Birth: {kundli_data.get('date_of_birth')}
 Time of Birth: {kundli_data.get('time_of_birth')}
 Place of Birth: {kundli_data.get('place_of_birth')}
 
-CHART DATA:
 Ascendant (Lagna): {kundli_data.get('ascendant_rashi')} at {kundli_data.get('ascendant_degree', 0):.1f}°
-Moon Sign (Janma Rashi): {kundli_data.get('moon_sign')}
+Moon Sign: {kundli_data.get('moon_sign')}
 Sun Sign: {kundli_data.get('sun_sign')}
 Birth Nakshatra: {kundli_data.get('nakshatra')} Pada {kundli_data.get('nakshatra_pada')} (Lord: {kundli_data.get('nakshatra_lord')})
-Ayanamsa: {kundli_data.get('ayanamsa', 23.85):.2f}° (Lahiri)
 
 PLANETARY POSITIONS:
 {planets_text}
@@ -128,63 +158,40 @@ PLANETARY POSITIONS:
 YOGAS PRESENT:
 {yogas_text if yogas_text else 'Standard chart configuration'}
 
-Provide a detailed, personalized reading covering:
-1. PERSONALITY & APPEARANCE: Ascendant analysis, physical traits, overall temperament
-2. MIND & EMOTIONS: Moon sign and nakshatra analysis, emotional nature, mental patterns
-3. SOUL PURPOSE: Sun sign analysis, dharma, life mission and core identity
-4. WEALTH & FAMILY: 2nd house analysis, financial potential, family karma
-5. CAREER & STATUS: 10th house analysis, ideal career paths, professional destiny
-6. RELATIONSHIPS & MARRIAGE: 7th house analysis, partnership karma, ideal partner traits
-7. HEALTH: Planetary influences on health, vulnerable areas, preventive care
-8. SPIRITUAL PATH: 12th house, moksha indicators, spiritual practices suited to the chart
-9. CURRENT PERIOD: What the chart suggests about the current phase of life
-10. SPECIAL BLESSINGS: The most powerful positive combinations in this chart
-11. CHALLENGES TO OVERCOME: Key karmic lessons and how to navigate them
-12. REMEDIES: 3 specific, personalized remedies based on this exact chart
-
-Respond in JSON format:
+Respond ONLY with this JSON (no other text):
 {{
-  "personality": "...",
-  "mind_emotions": "...",
-  "soul_purpose": "...",
-  "wealth_family": "...",
-  "career": "...",
-  "relationships": "...",
-  "health": "...",
-  "spiritual_path": "...",
-  "current_period": "...",
-  "special_blessings": ["blessing1", "blessing2", "blessing3"],
-  "challenges": ["challenge1", "challenge2"],
+  "personality": "Ascendant analysis — physical traits and overall temperament",
+  "mind_emotions": "Moon sign and nakshatra — emotional nature and mental patterns",
+  "soul_purpose": "Sun sign analysis — dharma and life mission",
+  "wealth_family": "2nd house — financial potential and family karma",
+  "career": "10th house — ideal career paths and professional destiny",
+  "relationships": "7th house — partnership karma and ideal partner traits",
+  "health": "Planetary influences on health and vulnerable areas",
+  "spiritual_path": "12th house and moksha indicators",
+  "current_period": "What the chart suggests about the current phase of life",
+  "special_blessings": ["blessing 1", "blessing 2", "blessing 3"],
+  "challenges": ["karmic lesson 1", "karmic lesson 2"],
   "remedies": [
-    {{"title": "...", "description": "...", "mantra": "..."}},
-    {{"title": "...", "description": "...", "mantra": "..."}},
-    {{"title": "...", "description": "...", "mantra": "..."}}
+    {{"title": "remedy name", "description": "how to do it", "mantra": "Sanskrit mantra"}},
+    {{"title": "remedy name", "description": "how to do it", "mantra": "Sanskrit mantra"}},
+    {{"title": "remedy name", "description": "how to do it", "mantra": "Sanskrit mantra"}}
   ],
-  "overall_summary": "...",
-  "lucky_period": "...",
-  "power_planet": "..."
+  "overall_summary": "2-3 sentence synthesis of the entire chart",
+  "lucky_period": "best upcoming time period",
+  "power_planet": "the strongest planet in this chart"
 }}"""
-
-    message = client.messages.create(
-        model=settings.AI_MODEL,
-        max_tokens=settings.AI_MAX_TOKENS,
-        system=JYOTISH_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    text = message.content[0].text.strip()
-    text = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+    raw = await _call_groq(prompt, max_tokens=2048)
+    return _parse_json(raw)
 
 
+# ── Compatibility ───────────────────────────────────────────────────────────
 async def generate_compatibility_reading(
     person1: Dict[str, Any],
     person2: Dict[str, Any],
-    score: int
+    score: int,
 ) -> Dict[str, Any]:
-    """AI-powered Kundli Milan (compatibility) analysis."""
-
-    prompt = f"""Perform a detailed Vedic Kundli Milan (compatibility analysis) for this couple:
+    """Return a Vedic Kundli Milan (compatibility) analysis in JSON."""
+    prompt = f"""Perform a Vedic Kundli Milan (compatibility analysis) for this couple:
 
 PERSON 1:
 Name: {person1.get('name', 'Person 1')}
@@ -200,54 +207,38 @@ Nakshatra: {person2.get('nakshatra')}
 
 ASHTAKOOTA SCORE: {score}/36
 
-Provide a comprehensive compatibility reading including:
-1. OVERALL COMPATIBILITY: What this score and combination means
-2. EMOTIONAL COMPATIBILITY: How their minds and hearts align
-3. PHYSICAL COMPATIBILITY: Energy levels, lifestyle, attraction
-4. INTELLECTUAL MATCH: Communication styles, shared interests
-5. SPIRITUAL COMPATIBILITY: Dharmic alignment, shared values
-6. STRENGTHS OF THIS UNION: Top 3 beautiful aspects of this match
-7. AREAS TO NURTURE: Top 2 areas needing conscious attention
-8. LIFE TOGETHER: What life partnership will look and feel like
-9. REMEDIES FOR HARMONY: 2 specific remedies to strengthen the bond
-10. AUSPICIOUS TIMING: Best seasons/periods for marriage or milestones
-
-Respond in JSON:
+Respond ONLY with this JSON (no other text):
 {{
-  "overall": "...",
-  "emotional": "...",
-  "physical": "...",
-  "intellectual": "...",
-  "spiritual": "...",
-  "strengths": ["...", "...", "..."],
-  "nurture": ["...", "..."],
-  "life_together": "...",
-  "remedies": [{{"title":"...","description":"..."}},{{"title":"...","description":"..."}}],
-  "auspicious_timing": "...",
-  "verdict": "Highly Compatible|Compatible|Moderately Compatible|Needs Work",
-  "verdict_detail": "..."
-}}"""
+  "overall": "what this score and combination means overall",
+  "emotional": "how their emotional natures align",
+  "physical": "energy levels, lifestyle, and attraction compatibility",
+  "intellectual": "communication styles and shared interests",
+  "spiritual": "dharmic alignment and shared values",
+  "strengths": ["beautiful aspect 1", "beautiful aspect 2", "beautiful aspect 3"],
+  "nurture": ["area needing attention 1", "area needing attention 2"],
+  "life_together": "what life partnership will look and feel like",
+  "remedies": [
+    {{"title": "remedy name", "description": "how to strengthen the bond"}},
+    {{"title": "remedy name", "description": "how to strengthen the bond"}}
+  ],
+  "auspicious_timing": "best seasons or periods for marriage or milestones",
+  "verdict": "Highly Compatible",
+  "verdict_detail": "one sentence explaining the verdict"
+}}
 
-    message = client.messages.create(
-        model=settings.AI_MODEL,
-        max_tokens=1500,
-        system=JYOTISH_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    text = message.content[0].text.strip()
-    text = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+For verdict use exactly one of: Highly Compatible | Compatible | Moderately Compatible | Needs Work"""
+    raw = await _call_groq(prompt, max_tokens=1500)
+    return _parse_json(raw)
 
 
+# ── Dasha Reading ───────────────────────────────────────────────────────────
 async def generate_dasha_reading(
     kundli_data: Dict[str, Any],
     current_dasha: str,
     next_dasha: str,
-    dasha_end_date: str
+    dasha_end_date: str,
 ) -> Dict[str, Any]:
-    """AI analysis of current Dasha period."""
-
+    """Return a Vimshottari Dasha period analysis in JSON."""
     prompt = f"""Analyze the current Vimshottari Dasha period for:
 
 Name: {kundli_data.get('name', 'Native')}
@@ -259,137 +250,114 @@ CURRENT MAHADASHA: {current_dasha}
 Dasha Ends: {dasha_end_date}
 UPCOMING DASHA: {next_dasha}
 
-Provide a detailed analysis:
-1. CURRENT DASHA THEMES: What {current_dasha} Mahadasha means for this person
-2. OPPORTUNITIES: Key doors opening during this period
-3. CHALLENGES: What to be watchful about
-4. CAREER IMPACT: Professional life during this dasha
-5. RELATIONSHIPS: How this dasha affects love and partnerships
-6. HEALTH: Physical and mental health themes
-7. SPIRITUAL GROWTH: Spiritual opportunities of this period
-8. TRANSITION PREPARATION: How to prepare for {next_dasha} Mahadasha
-9. BEST MONTHS: Most auspicious months in the current year
-10. REMEDIES: 2 specific remedies for this dasha lord
-
-Return JSON:
+Respond ONLY with this JSON (no other text):
 {{
-  "themes": "...",
-  "opportunities": "...",
-  "challenges": "...",
-  "career": "...",
-  "relationships": "...",
-  "health": "...",
-  "spiritual": "...",
-  "transition": "...",
-  "best_months": ["...", "...", "..."],
-  "remedies": [{{"title":"...","description":"...","mantra":"..."}}],
-  "overall_message": "..."
+  "themes": "key themes and overall energy of this {current_dasha} Mahadasha",
+  "opportunities": "doors opening during this period",
+  "challenges": "what to be watchful about",
+  "career": "professional life during this dasha",
+  "relationships": "love and partnership effects",
+  "health": "physical and mental health themes",
+  "spiritual": "spiritual growth opportunities",
+  "transition": "how to prepare for the upcoming {next_dasha} Mahadasha",
+  "best_months": ["Month 1", "Month 2", "Month 3"],
+  "remedies": [
+    {{"title": "remedy name", "description": "how to do it", "mantra": "Sanskrit mantra"}}
+  ],
+  "overall_message": "2-sentence inspiring summary for this period"
 }}"""
-
-    message = client.messages.create(
-        model=settings.AI_MODEL,
-        max_tokens=1200,
-        system=JYOTISH_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    text = message.content[0].text.strip()
-    text = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+    raw = await _call_groq(prompt, max_tokens=1200)
+    return _parse_json(raw)
 
 
+# ── Chat ─────────────────────────────────────────────────────────────────────
 async def chat_with_astrologer(
-    messages: list,
-    user_context: Optional[Dict] = None
+    messages: List[Dict[str, str]],
+    user_context: Optional[Dict[str, str]] = None,
 ) -> str:
-    """Interactive AI astrologer chat."""
-
-    context_text = ""
+    """Conversational chat – returns plain‑text response (no JSON)."""
+    context_note = ""
     if user_context:
-        context_text = f"""
-User's Chart Context:
-- Moon Sign: {user_context.get('moon_sign', 'Unknown')}
-- Ascendant: {user_context.get('ascendant_rashi', 'Unknown')}
-- Nakshatra: {user_context.get('nakshatra', 'Unknown')}
-- Current Dasha: {user_context.get('current_dasha', 'Unknown')}
-"""
+        context_note = (
+            f"\n[User Chart — Moon Sign: {user_context.get('moon_sign','?')}, "
+            f"Ascendant: {user_context.get('ascendant_rashi','?')}, "
+            f"Nakshatra: {user_context.get('nakshatra','?')}, "
+            f"Current Dasha: {user_context.get('current_dasha','?')}]"
+        )
 
-    system = JYOTISH_SYSTEM_PROMPT + (f"\n\n{context_text}" if context_text else "")
-
-    api_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
-
-    message = client.messages.create(
-        model=settings.AI_MODEL,
-        max_tokens=800,
-        system=system,
-        messages=api_messages
+    chat_system = (
+        "You are Jyotish Guru — a wise, warm Vedic astrology master. "
+        "Respond conversationally in plain text as a knowledgeable astrologer would speak. "
+        "Use Sanskrit terms naturally with brief English translations. "
+        "Be specific, compassionate, and spiritually uplifting. "
+        "Do NOT respond with JSON. Do NOT mention you are an AI."
+        + context_note
     )
 
-    return message.content[0].text
+    # Ensure the conversation starts with a user message (Groq requirement)
+    filtered = [m for m in messages if m["role"] in ("user", "assistant")]
+    while filtered and filtered[0]["role"] == "assistant":
+        filtered = filtered[1:]
+
+    if not filtered:
+        return "Namaste 🙏 Please ask your question and I will illuminate your path."
+
+    groq_messages = [{"role": "system", "content": chat_system}] + filtered
+
+    def _sync_call() -> str:
+        resp = client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            max_tokens=800,
+            temperature=0.75,
+            messages=groq_messages,
+        )
+        return resp.choices[0].message.content or ""
+
+    return await asyncio.to_thread(_sync_call)
 
 
+# ── Muhurta ───────────────────────────────────────────────────────────────────
 async def generate_muhurta(
     event_type: str,
     preferred_month: str,
-    kundli_data: Optional[Dict] = None
+    kundli_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """AI-powered auspicious timing (Muhurta) selection."""
-
-    chart_context = ""
+    """Return auspicious Muhurta timing in JSON."""
+    chart_ctx = ""
     if kundli_data:
-        chart_context = f"""
-Person's Chart:
-- Ascendant: {kundli_data.get('ascendant_rashi')}
-- Moon Sign: {kundli_data.get('moon_sign')}
-- Nakshatra: {kundli_data.get('nakshatra')}
-"""
+        chart_ctx = (
+            f"Person's Ascendant: {kundli_data.get('ascendant_rashi')}, "
+            f"Moon Sign: {kundli_data.get('moon_sign')}"
+        )
 
-    prompt = f"""Select the most auspicious Muhurta (timing) for the following event:
+    prompt = f"""Select the most auspicious Muhurta (timing) for:
 
-Event Type: {event_type}
-Preferred Month/Period: {preferred_month}
-{chart_context}
+Event: {event_type}
+Preferred Month: {preferred_month}
+{chart_ctx}
 
-Provide Muhurta guidance including:
-1. BEST DAYS OF WEEK: Which weekdays are most favorable
-2. BEST TITHIS: Favorable lunar days (Tithis) for this event
-3. FAVORABLE NAKSHATRAS: Nakshatras that support this event
-4. AVOID: Times, days, or conditions to strictly avoid
-5. IDEAL TIME OF DAY: Morning, afternoon, evening, or specific hours
-6. MUHURTA RITUAL: Brief ritual to maximize the chosen timing
-7. MANTRAS: Specific mantras to chant on the chosen day
-
-Return JSON:
+Respond ONLY with this JSON (no other text):
 {{
   "best_days": ["Monday", "Thursday"],
-  "best_tithis": ["...", "..."],
-  "favorable_nakshatras": ["...", "...", "..."],
-  "avoid": "...",
-  "ideal_time": "...",
-  "ritual": "...",
-  "mantras": ["...", "..."],
-  "general_guidance": "..."
+  "best_tithis": ["Panchami", "Dashami"],
+  "favorable_nakshatras": ["Rohini", "Pushya", "Uttara Phalguni"],
+  "avoid": "what times, days, or conditions to strictly avoid",
+  "ideal_time": "best time of day with explanation",
+  "ritual": "brief ritual to maximize the chosen timing",
+  "mantras": ["mantra 1", "mantra 2"],
+  "general_guidance": "2-3 sentences of overall Muhurta guidance for this event"
 }}"""
-
-    message = client.messages.create(
-        model=settings.AI_MODEL,
-        max_tokens=800,
-        system=JYOTISH_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    text = message.content[0].text.strip()
-    text = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+    raw = await _call_groq(prompt, max_tokens=800)
+    return _parse_json(raw)
 
 
+# ── Yearly Prediction ────────────────────────────────────────────────────────
 async def generate_yearly_prediction(
     kundli_data: Dict[str, Any],
-    year: int
+    year: int,
 ) -> Dict[str, Any]:
-    """AI-powered annual prediction (Varshphal)."""
-
-    prompt = f"""Generate a detailed annual prediction (Varshphal) for {year}:
+    """Return a Varshphal (annual) prediction in JSON."""
+    prompt = f"""Generate a detailed annual Varshphal prediction for {year}:
 
 Name: {kundli_data.get('name', 'Native')}
 Moon Sign: {kundli_data.get('moon_sign')}
@@ -397,36 +365,33 @@ Ascendant: {kundli_data.get('ascendant_rashi')}
 Nakshatra: {kundli_data.get('nakshatra')}
 Current Dasha: {kundli_data.get('current_dasha', 'Unknown')}
 
-Provide month-by-month guidance for {year} and overall annual themes.
-
-Return JSON:
+Respond ONLY with this JSON (no other text):
 {{
-  "year_theme": "...",
-  "overall_energy": "...",
-  "career": "...",
-  "love": "...",
-  "health": "...",
-  "finance": "...",
-  "spiritual": "...",
+  "year_theme": "one powerful sentence capturing the essence of this year",
+  "overall_energy": "2-3 sentences on the year's overall cosmic climate",
+  "career": "career and professional forecast for {year}",
+  "love": "love and relationship forecast for {year}",
+  "health": "health and wellness focus for {year}",
+  "finance": "financial forecast for {year}",
+  "spiritual": "spiritual growth path for {year}",
   "monthly": {{
-    "January": "...", "February": "...", "March": "...",
-    "April": "...", "May": "...", "June": "...",
-    "July": "...", "August": "...", "September": "...",
-    "October": "...", "November": "...", "December": "..."
+    "January": "brief January forecast",
+    "February": "brief February forecast",
+    "March": "brief March forecast",
+    "April": "brief April forecast",
+    "May": "brief May forecast",
+    "June": "brief June forecast",
+    "July": "brief July forecast",
+    "August": "brief August forecast",
+    "September": "brief September forecast",
+    "October": "brief October forecast",
+    "November": "brief November forecast",
+    "December": "brief December forecast"
   }},
-  "best_months": ["...", "...", "..."],
-  "challenging_months": ["...", "..."],
-  "annual_mantra": "...",
-  "annual_remedy": "..."
+  "best_months": ["Month1", "Month2", "Month3"],
+  "challenging_months": ["Month1", "Month2"],
+  "annual_mantra": "Sanskrit mantra for the year",
+  "annual_remedy": "one key remedy to practice throughout {year}"
 }}"""
-
-    message = client.messages.create(
-        model=settings.AI_MODEL,
-        max_tokens=2000,
-        system=JYOTISH_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    text = message.content[0].text.strip()
-    text = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+    raw = await _call_groq(prompt, max_tokens=2000)
+    return _parse_json(raw)

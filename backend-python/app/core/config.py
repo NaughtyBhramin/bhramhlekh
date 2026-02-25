@@ -3,7 +3,7 @@ from typing import List
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "Jyotish Darshan API"
+    APP_NAME: str = "Bhramhlekh API"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
@@ -16,10 +16,11 @@ class Settings(BaseSettings):
     JAVA_SERVICE_URL: str = "http://localhost:8080"
     DEFAULT_AYANAMSA: str = "lahiri"
 
-    # AI Configuration
-    ANTHROPIC_API_KEY: str = ""
-    AI_MODEL: str = "claude-opus-4-6"
-    AI_MAX_TOKENS: int = 2048
+    # ── Groq AI Configuration ────────────────────────────────
+    # Free API key from: https://console.groq.com
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-120b"   # Best quality on free tier
+    GROQ_MAX_TOKENS: int = 2048
 
     class Config:
         env_file = ".env"

@@ -132,12 +132,15 @@ async def ai_dasha(req: DashaRequest):
 @router.post("/chat")
 async def ai_chat(req: ChatRequest):
     """Interactive chat with the AI Vedic astrologer."""
+    import traceback
     try:
         messages = [{"role": m.role, "content": m.content} for m in req.messages]
         response = await chat_with_astrologer(messages, req.user_context)
         return {"success": True, "response": response}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI chat error: {str(e)}")
+        tb = traceback.format_exc()
+        print(f"\n[AI CHAT ERROR]\n{tb}")          # visible in uvicorn terminal
+        raise HTTPException(status_code=500, detail=f"AI chat error: {str(e)} | {tb[-300:]}")
 
 
 @router.post("/muhurta")
@@ -162,11 +165,12 @@ async def ai_yearly(req: YearlyRequest):
 
 @router.get("/health")
 async def ai_health():
-    """Check if AI service is configured."""
+    """Check if Groq AI service is configured."""
     from app.core.config import settings
-    configured = bool(settings.ANTHROPIC_API_KEY)
+    configured = bool(settings.GROQ_API_KEY)
     return {
         "ai_enabled": configured,
-        "model": settings.AI_MODEL if configured else "not configured",
-        "message": "AI service ready" if configured else "Set ANTHROPIC_API_KEY in .env"
+        "provider": "Groq Cloud (Free Tier)",
+        "model": settings.GROQ_MODEL if configured else "not configured",
+        "message": "Groq AI service ready" if configured else "Set GROQ_API_KEY in .env — get free key at console.groq.com"
     }

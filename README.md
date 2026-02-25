@@ -24,7 +24,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![Java](https://img.shields.io/badge/Java-17-ED8B00?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
-[![Claude AI](https://img.shields.io/badge/Claude_AI-Anthropic-CC785C?style=flat-square)](https://anthropic.com)
+[![Groq AI](https://img.shields.io/badge/Groq_AI-Free_Tier-F55036?style=flat-square)](https://console.groq.com)
 [![License](https://img.shields.io/badge/License-MIT-gold?style=flat-square)](LICENSE)
 
 </div>
@@ -124,7 +124,7 @@ The goal is to make the wisdom of a master astrologer accessible to anyone, anyw
 | **Styling** | Pure CSS Variables | Zero framework dependency |
 | **State** | Zustand + React Query | Auth + server state management |
 | **Python API** | FastAPI, SQLAlchemy (async) | Astrology computation engine |
-| **AI Engine** | Anthropic Claude (claude-opus-4-6) | All AI-powered readings |
+| **AI Engine** | Groq Cloud — Llama 3.1 70B (Free) | All AI-powered readings |
 | **Astronomy** | PyEphem, Swiss Ephemeris | Accurate planetary positions |
 | **Java Service** | Spring Boot 3, Spring Security | Authentication and JWT |
 | **Database** | PostgreSQL 15 | Primary data store |
@@ -215,12 +215,12 @@ SECRET_KEY=your-secret-key-change-this
 JAVA_SERVICE_URL=http://localhost:8080
 
 # ─────────────────────────────────────────────────
-# AI — Required for all AI features
-# Get your key at: https://console.anthropic.com
+# GROQ AI — Free, no credit card needed
+# Get your key at: https://console.groq.com
 # ─────────────────────────────────────────────────
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-AI_MODEL=claude-opus-4-6
-AI_MAX_TOKENS=2048
+GROQ_API_KEY=your-groq-api-key-here
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_MAX_TOKENS=2048
 ```
 
 ---
@@ -365,7 +365,7 @@ You are free to use, modify, distribute, and build upon this project for any pur
 ## ◈ Acknowledgements
 
 - **Maharishi Parashara** — author of the *Brihat Parashara Hora Shastra*, the foundational text of Vedic astrology
-- **Anthropic** — for Claude AI, without which the intelligence layer would not exist
+- **Groq** — for the blazing-fast free AI inference layer that powers all readings
 - **Swiss Ephemeris** — for the most accurate open-source planetary calculation library
 - **The Vedic tradition** — for 5,000 years of astronomical and spiritual inquiry
 
