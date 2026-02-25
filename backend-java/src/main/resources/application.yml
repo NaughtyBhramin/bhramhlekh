@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: jyotish-auth-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/jyotish_darshan
+    username: jyotish_user
+    password: jyotish_secret
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 10
+
+  jpa:
+    hibernate:
+      ddl-auto: validate        # Use 'create' on first run, then 'validate'
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+server:
+  port: 8080
+  error:
+    include-message: always
+    include-binding-errors: always
+
+jwt:
+  secret: jyotish-jwt-secret-must-be-at-least-256-bits-long-for-hs256-algorithm
+  expiration: 86400000        # 24 hours
+  refresh-expiration: 604800000  # 7 days
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.jyotish: DEBUG
+    org.springframework.security: WARN
