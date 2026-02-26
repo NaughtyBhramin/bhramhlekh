@@ -1,5 +1,10 @@
 <div align="center">
 
+<!-- SOCIAL PREVIEW -->
+<img src="social-preview.png" alt="Jyotish Darshan" width="100%" />
+
+<br/><br/>
+
 ```
      ██╗██╗   ██╗ ██████╗ ████████╗██╗███████╗██╗  ██╗
      ██║╚██╗ ██╔╝██╔═══██╗╚══██╔══╝██║██╔════╝██║  ██║
@@ -18,7 +23,7 @@
 
 ### ॐ &nbsp; Ancient Vedic Wisdom · AI-Powered Cosmic Guidance &nbsp; ॐ
 
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+![Python](https://img.shields.io/badge/PYTHON-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=0a0f1a)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
